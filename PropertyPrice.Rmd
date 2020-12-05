@@ -1,0 +1,247 @@
+---
+title: "A Multiple Linear Model for Toronto and Mississauga House Prices"
+author: "Tanyilan, Id 1004701548"
+date: "December 5, 2020"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(knitr)
+library(skimr)
+library(kableExtra)
+library(ggplot2)
+library(nlme)
+library(stringi)
+library(fastDummies)
+library(MASS)
+```
+
+## I. Data Wrangling
+
+**1.1 Sampling Data**
+  
+We randomly selected 150 cases from the raw data. The id of the cases are
+  
+```{r}
+data_csv <- read.csv("real203.csv")  # Read the data file
+set.seed(1004701548)  # Set the seed to be my student number
+data <- data_csv[sample(1:150),]  # Randomly select a sample of 150 cases
+data$ID  # Report the IDs of the sample selected
+```
+
+```{r}
+data$lotsize <- data$lotwidth * data$lotlength  # Create a new variable with the name 'lotsize'
+data = subset(data, select = -c(lotwidth, lotlength)) # Replace 'lotwidth' and 'lotlength'
+```
+  
+  
+**1.2 Data Cleaning**
+  
+```{r, include=FALSE}
+summary(data) # Information about the data
+data$location <- as.numeric(data$location == "T")
+```
+
+```{r}
+data = subset(data, select = -c(maxsqfoot)) # Remove one predictor
+data <- na.omit(data) # Remove the data sets with missing value(s)
+```
+
+Independent variable 'maxsqfoot' is removed because
+
+- We don't need two variables representing the size of the property. 'lotsize'is another area variable.
+- We choose 'lotsize' instead of 'maxsqfoot' because there are 98 missing values for 'maxsqfoot'.
+
+Also, we remove 11 data sets containing 'na' (missing values).
+  
+  
+## II. Exploratory Data Analysis
+  
+**2.1 Classify Variables**
+  
+```{r, include=FALSE}
+skim(data) # Check the variables type
+```
+
+- Categorical Variable(s): location
+
+- Discrete Variable(s): Number of bedrooms(bedroom), Number of bathrooms(bathroom), Number of parking spots(parking), Maximum square footage(maxsqfoot, removed)
+
+- Continuous Variables: Sale price(sale), List price(list), Property tax(taxes), Lot size(lotsize),  Frontage(lotwidth, removed), Length(lotlength, removed)
+    
+  
+**2.2 Correlation Matrix**
+  
+```{r}
+numericx = cbind(data$sale, data$list, data$bedroom, data$bathroom, data$taxes, data$parking, data$lotsize, data$location)
+colnames(numericx) <- c("sale", "list", "bedroom", "bathroom", "taxes", "parking", "lotsize", "location")
+cor_matrix <- round(cor(numericx), 4) # Generate a coefficient correlation table
+upper<-cor_matrix
+upper[upper.tri(cor_matrix)]<-"" # Remaining the lower triangle
+upper<-as.data.frame(upper) # Convert the table to a data frame
+kable(upper, format = "html", caption = 'TABLE 2.1: Correlation Coefficient Matrix') %>% kable_styling(bootstrap_options = c("striped", "hover"), full_width = F) # Stylish the data frame
+```
+  
+Highest to Lowest correlation coefficient with 'sale price':
+
+1. Last list price (list): 0.9874, 
+2. Property tax (taxes): 0.8087, 
+3. Number of bathrooms (bathroom): 0.6788, 
+4. Number of bedrooms (bedroom): 0.4395,
+5. Lotsize (lotsize): 0.3714, 
+6. Number of parking spots (parking): 0.2486
+7. Location of the property (location): 0.0948
+  
+  
+**2.2 Scatterplot Matrix**
+  
+```{r}
+pairs(sale~list+bedroom+bathroom+parking+taxes+lotsize+location, data=data, cex.labels=0.85, main="FIGURE 2.1 Scatterplot Matrix (1548)") # Create a scatterplot matrix
+```
+  
+    
+2.2.1 Violate The Constant Variance Assumption
+
+Take a look at the first row except the dummy variable "location"; the scatter plots are approximately positively related except for the "lotsize". Points on the last graph are centered at the left-bottom corner. 
+
+Thus, we guess that the data of 'lotsize' violate the constant variance assumption.
+  
+  
+2.2.2 The Standardized Residuals Plot of 'lotsize'
+  
+```{r}
+fullmodel <- lm(sale~list+bedroom+bathroom+parking+taxes+lotsize+location,
+                 data=data) # Produce a full model
+stan_residual <- rstandard(fullmodel) # Get the standard residual of the model
+ggplot(fullmodel, aes(data$lotsize, .stdresid))+geom_point(aes(na.rm=TRUE)) + stat_smooth(method="loess", na.rm=TRUE) + xlab("Lot Size")+ylab("Standardized Residuals") + ggtitle("FIGURE 2.2  Standardized Residuals vs Lot Size (1548)") + theme(plot.title = element_text(hjust = 0.5, size=15, face = "bold", margin = margin(10,0,10,0))) + geom_hline(yintercept=0, col="red", linetype="dashed") # Plot the residual vs fitted value plot
+```
+
+The residuals do not roughly form a horizontal band around the zero line (red), suggesting that the error terms' variance are not constant. The conclusion proves that the constant variance assumption is not satisfied.
+  
+  
+## III. Methods and Model
+  
+**3.1 Fitted Linear Regression Model**
+  
+3.1.1 Summary Table
+  
+```{r, include=FALSE}
+summary(fullmodel) # Infomation about the full model
+```
+
+```{r}
+kable(coef(summary(fullmodel)), format = "html", caption = 'TABLE 2.2: Summary of the Linear Regression Model Coefficient', digits = 4) %>% kable_styling(bootstrap_options = c("striped", "hover"), full_width = F) # Show related values we need for the analysis
+```
+  
+    
+3.1.2 Fitted Multiple Linear Regression Model (Full)
+  
+We get the full model given by:
+  
+$sale = 100436.12 + 0.83 \times list + 11935.80 \times bedroom + 7379.21 \times bathroom - 21769.70 \times parking + 22.28 \times taxes + 1.51 \times lotsize + 58072.40 \times location$
+  
+Note: location = 1 if the property is in Toronto, otherwise 0.
+  
+  
+3.1.3 Significance of Variables
+  
+List price, parking spots, and property taxes are significant because the p-values of the three variables are smaller than the significance level 0.05. We are able to reject the null hypothesis that the coefficients of these variables are zero.
+
+Keep all other variables constant, as the list price increased by 1, the property's average sale price will increase by 0.83.
+Keep all other variables constant, as the parking spots increased by 1, the property's average sale price will decrease by 21769.7.
+Keep all other variables constant, as the property tax increased by 1, the property's average sale price will increase by 22.28.
+  
+  
+**3.2 Find A Parsimonious Model (Backward, AIC)**
+  
+```{r, include=FALSE}
+step(fullmodel, direction = "backward") # AIC method, backward
+```
+  
+We get the final model according to the AIC values using backward regression is given by
+  
+$sale = 195400 + 0.85 \times list - 25200.70 \times parking + 22.6 \times taxes$
+  
+  
+**3.3 Find A Parsimonious Model (Backward, BIC)**
+  
+```{r, include=FALSE}
+n <- length(data$sale)
+step(fullmodel, direction = "backward", k=log(n)) # BIC method backward
+```
+  
+We get the final model according to the BIC values using backward regression is given by
+  
+$sale = 195400 + 0.85 \times list - 25200.70 \times parking + 22.6 \times taxes$
+
+
+**3.4 Check Multicollinearity**
+
+```{r, include=FALSE}
+model <- lm(sale~list+parking+taxes, data=data) # The linear regression final model
+anova(model) # Check for the partial F-test
+summary(model)
+```
+    
+Global F-test for the final model is significant, equals to 2187. One of the partial F-test of three variable, list price, is much more significant than others. This indicates there does not exist multicollinearity, but one variable is more significant than other two.
+
+
+**3.5 Summary**
+
+The final model is given by:
+
+$sale = 195400 + 0.85 \times list - 25200.70 \times parking + 22.60 \times taxes$
+
+Keep all other variables constant, as the list price increased by 1, the property's average sale price will increase by 0.85.
+Keep all other variables constant, as the parking spots increased by 1, the property's average sale price will decrease by 25200.7.
+Keep all other variables constant, as the property tax increased by 1, the property's average sale price will increase by 22.6.
+  
+AIC or BIC produces the same model, but different from the full model. Three of the variables are removed, and the coefficients of the remaining three are sightly different. AIC and BIC are both penalized-likelihood criteria. The model given by AIC and BIC is more likely to approximate the true model. In this case, they choose three variables considered to be more influential to the dependent variable. The coefficients are different because three independent variables are deleted from the model.
+  
+  
+## IV. Discussions and Limitations
+  
+**4.1 Diagnostic Plots**
+  
+### FIGURE 4.1 Diagnostic Plots (1548)
+  
+```{r}
+par(mfrow = c(2,2))
+main <- "FIGURE 4.1 Diagnostic Plots (1548)"
+plot(model, sub.caption = NULL) # Generate four diagnostic plots
+```
+  
+  
+**4.2 Interpretation Diagnostic Plots**
+  
+4.2.1 Residual vs Fitted
+  
+In this case, the residuals are approximately randomly distributed around the horizontal zero line. This indicates that the residuals and the fitted values are uncorrelated. The assumption of equal variance (homoscedasticity) is satisfied.
+  
+  
+4.2.2 Normal Q-Q
+  
+Most of the points follow the theoretical normal line. This indicates that the residuals are normally distributed. The assumption of the normal error MLR is satisfied.
+  
+  
+4.2.3 Scale-Location
+  
+There is no obvious pattern shown in the graph. This indicates that the residuals are spread equally along with the ranges of predictors. The assumption of equal variance (homoscedasticity) is satisfied.
+  
+  
+4.2.4 Residuals vs Leverage
+  
+All of the points are in the red line region. This indicates that there is no leverage point or outlier.
+  
+  
+**4.3 Future Work**
+   
+- We could use box cox transformation to improve our model by making some of the variables more normally distributed.
+
+- We could add more independent variables that may affect the sale price of properties.
+  
+  
+  
+   
+      
